@@ -3,8 +3,9 @@
 
   /// Colors a fenced block by token class: comments, strings, numbers, and
   /// keywords. It is a scanner, not a parser, so it only claims what a lexer
-  /// would agree on; anything else keeps the text color. An unknown language
-  /// still gets strings, numbers, and `#` / `//` comments.
+  /// would agree on; anything else keeps the text color. A named language it
+  /// does not know still gets strings, numbers, and `#` / `//` comments; a
+  /// block with no language stays plain.
   struct CodeHighlighter {
     let style: NativeMarkdownStyle
 
@@ -14,6 +15,9 @@
       let out = NSMutableAttributedString(
         string: code,
         attributes: [.font: style.font(monospaced: true), .foregroundColor: style.textColor])
+      // A block with no language may not be code at all (output, a formula
+      // written as text), so it is not colored as if it were.
+      guard !language.isEmpty else { return out }
       let grammar = Grammar.named(language.lowercased())
       let ns = code as NSString
       var claimed = IndexSet()

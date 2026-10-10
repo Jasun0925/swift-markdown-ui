@@ -83,18 +83,25 @@
       let marker = MarkdownCodeBlock(code)
       let start = out.length
       let language = language?.split(separator: " ").first.map(String.init) ?? ""
-      // The label line always exists: the Copy button sits at its right end.
-      let labelFont = style.font(size: 12 + style.delta)
-      let label = NSMutableAttributedString(
-        string: (language.isEmpty ? "\u{200B}" : language) + "\n",
-        attributes: [.font: labelFont, .foregroundColor: style.secondaryColor])
-      let labelParagraph = (paragraph.mutableCopy() as? NSMutableParagraphStyle) ?? paragraph
-      labelParagraph.minimumLineHeight = 26
-      labelParagraph.paragraphSpacing = 10
-      label.addAttribute(.baselineOffset, value: NativeMarkdownStyle.baselineOffset(for: labelFont, lineHeight: 26),
-                         range: NSRange(location: 0, length: label.length))
-      label.addAttribute(.paragraphStyle, value: labelParagraph, range: NSRange(location: 0, length: label.length))
-      out.append(label)
+      if language.isEmpty {
+        // No language: no label line, which would only be empty space. The
+        // Copy button sits at the right end of the first code line instead,
+        // so the right padding leaves room for it.
+        box.setWidth(16, type: .absoluteValueType, for: .padding, edge: .minY)
+        box.setWidth(72, type: .absoluteValueType, for: .padding, edge: .maxX)
+      } else {
+        let labelFont = style.font(size: 12 + style.delta)
+        let label = NSMutableAttributedString(
+          string: language + "\n",
+          attributes: [.font: labelFont, .foregroundColor: style.secondaryColor])
+        let labelParagraph = (paragraph.mutableCopy() as? NSMutableParagraphStyle) ?? paragraph
+        labelParagraph.minimumLineHeight = 26
+        labelParagraph.paragraphSpacing = 10
+        label.addAttribute(.baselineOffset, value: NativeMarkdownStyle.baselineOffset(for: labelFont, lineHeight: 26),
+                           range: NSRange(location: 0, length: label.length))
+        label.addAttribute(.paragraphStyle, value: labelParagraph, range: NSRange(location: 0, length: label.length))
+        out.append(label)
+      }
       let body = CodeHighlighter(style: style).highlight(code, language: language)
       body.append(NSAttributedString(string: "\n", attributes: [.font: codeFont]))
       let bodyRange = NSRange(location: 0, length: body.length)

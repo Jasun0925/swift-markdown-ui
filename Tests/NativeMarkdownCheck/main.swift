@@ -112,6 +112,17 @@
   check("comments and strings get different colors", color(at: "# note") != color(at: "\"hi\""))
   check("a keyword is colored", color(at: "return") != color(at: "x ="))
 
+  // A code block with no language: no label line, and no coloring
+  let bare = render("```\nL = -log y_k + 1\n```")
+  check("an unlabeled block starts with its code", bare.string.hasPrefix("L = -log"))
+  var bareColors = Set<String>()
+  bare.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: bare.length)) { value, _, _ in
+    if let color = value as? NSColor { bareColors.insert(color.description) }
+  }
+  check("an unlabeled block is not highlighted", bareColors.count == 1)
+  let labeled = render("```python\nx = 1\n```")
+  check("a labeled block shows its language", labeled.string.hasPrefix("python\n"))
+
   // `\\[4pt]` must be rewritten even when the source typesets as written:
   // SwiftMath draws "[4pt]" as text rather than failing.
   let spaced = "\\begin{cases} -\\tau & y > 0 \\\\[4pt] \\tau - 1 & y < 0 \\end{cases}"
@@ -135,6 +146,10 @@
       | 100 | $(1-0.9)\\times 20 = 2$ |
 
       $$\\frac{\\partial \\mathcal{L}_i}{\\partial \\hat{y}_i} = \(spaced)$$
+
+      ```
+      L = -log ŷ_k
+      ```
 
       | Loss | $\\tau$ | What it predicts |
       |---|---|---|

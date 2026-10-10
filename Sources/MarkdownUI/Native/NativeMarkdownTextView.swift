@@ -85,9 +85,19 @@
         button.code = block.code
         let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
         let line = layout.lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+        // The box's right edge, past its padding: with a label line the button
+        // ends that line, and without one it sits in the padding kept for it.
+        var right = line.maxX
+        if let paragraph = storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
+          let box = paragraph.textBlocks.last
+        {
+          let blockRange = storage.range(of: box, at: range.location)
+          let frame = layout.boundsRect(for: box, glyphRange: layout.glyphRange(forCharacterRange: blockRange, actualCharacterRange: nil))
+          right = frame.maxX - 10
+        }
         let size = button.fittingSize
         button.frame = CGRect(
-          x: line.maxX - size.width - 6,
+          x: right - size.width,
           y: line.minY + (line.height - size.height) / 2,
           width: size.width,
           height: size.height
@@ -152,6 +162,29 @@
       }
       return plain.replacingOccurrences(of: "\u{2028}", with: "\n")
         .replacingOccurrences(of: "\u{200B}", with: "")
+    }
+  }
+
+  extension NSAttributedString {
+    /// The character range `block` spans around `location`: the run of
+    /// paragraphs whose text blocks include it.
+    func range(of block: NSTextBlock, at location: Int) -> NSRange {
+      let string = self.string as NSString
+      func contains(_ index: Int) -> Bool {
+        guard index >= 0, index < length,
+          let style = attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle
+        else { return false }
+        return style.textBlocks.contains { $0 === block }
+      }
+      var start = string.paragraphRange(for: NSRange(location: location, length: 0)).location
+      while start > 0, contains(start - 1) {
+        start = string.paragraphRange(for: NSRange(location: start - 1, length: 0)).location
+      }
+      var end = NSMaxRange(string.paragraphRange(for: NSRange(location: location, length: 0)))
+      while end < length, contains(end) {
+        end = NSMaxRange(string.paragraphRange(for: NSRange(location: end, length: 0)))
+      }
+      return NSRange(location: start, length: end - start)
     }
   }
 
