@@ -28,14 +28,60 @@
       let key = "\(display)|\(fontSize)|\(color.description)|\(latex)" as NSString
       if let hit = cache.object(forKey: key) { return hit.value }
       var result: TypesetFormula?
-      for candidate in candidates(latex) {
-        if let formula = render(candidate, display: display, fontSize: fontSize, color: color) {
-          result = formula
-          break
+      // `\boxed{...}` around the whole formula: SwiftMath has no box, so the
+      // inside is typeset and the frame is drawn around its image.
+      let (inside, boxed) = unwrapBoxed(latex)
+      if let pieces = BraceLayout.split(inside) {
+        // Top-level `\underbrace` / `\overbrace`: each part is typeset on
+        // its own and laid out on one baseline, with the brace and its label
+        // drawn under (or over) the term.
+        result = BraceLayout.compose(pieces, display: display, fontSize: fontSize, color: color) {
+          render(candidates($0)[0], display: $1, fontSize: $2, color: color)
         }
+      } else {
+        for candidate in candidates(inside) {
+          if let formula = render(candidate, display: display, fontSize: fontSize, color: color) {
+            result = formula
+            break
+          }
+        }
+      }
+      if boxed, let inner = result {
+        result = framed(inner, color: color, fontSize: fontSize)
       }
       cache.setObject(Box(result), forKey: key)
       return result
+    }
+
+    /// The body of `\boxed{...}` (or `\fbox{...}`) when it is the whole
+    /// formula, and whether it was boxed.
+    static func unwrapBoxed(_ latex: String) -> (String, Bool) {
+      let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+      for command in ["\\boxed", "\\fbox"] where trimmed.hasPrefix(command) {
+        let after = trimmed.index(trimmed.startIndex, offsetBy: command.count)
+        if let group = bracedGroup(in: trimmed, from: after),
+          trimmed[group.end...].trimmingCharacters(in: .whitespaces).isEmpty
+        {
+          return (group.body, true)
+        }
+      }
+      return (latex, false)
+    }
+
+    /// `formula` inside a thin rectangle with padding, the way `\boxed` sets.
+    private static func framed(_ formula: TypesetFormula, color: NSColor, fontSize: CGFloat) -> TypesetFormula {
+      let pad = (fontSize * 0.3).rounded()
+      let inner = formula.image.size
+      let size = CGSize(width: inner.width + pad * 2, height: inner.height + pad * 2)
+      let image = NSImage(size: size, flipped: false) { bounds in
+        formula.image.draw(in: CGRect(x: pad, y: pad, width: inner.width, height: inner.height))
+        color.setStroke()
+        let frame = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
+        frame.lineWidth = 0.8
+        frame.stroke()
+        return true
+      }
+      return TypesetFormula(image: image, descent: formula.descent + pad)
     }
 
     /// What SwiftMath is given: the source with non-ASCII runs turned into
@@ -49,9 +95,9 @@
       [TextAtoms.substitute(rewrite(latex))]
     }
 
-    /// Commands SwiftMath lacks, mapped to ones it has. `\underbrace{x}_{y}`
-    /// keeps `x` and its `_{y}` label as a subscript; the brace is lost.
+    /// Commands SwiftMath lacks, mapped to ones it has.
     static func rewrite(_ latex: String) -> String {
+      var s = stackBraceLabels(latex)
       let renames: [(String, String)] = [
         ("underbrace", ""), ("overbrace", ""),
         ("tfrac", "frac"), ("dfrac", "frac"),
@@ -63,7 +109,6 @@
         ("operatorname*", "mathrm"), ("operatorname", "mathrm"),
         ("limits", ""), ("nolimits", ""), (":", ">"),
       ]
-      var s = latex
       for (name, replacement) in renames {
         s = replacingCommand(s, name, with: replacement)
       }
@@ -71,6 +116,73 @@
       s = s.replacingOccurrences(
         of: "\\\\\\\\\\s*\\[[^\\]]*\\]", with: "\\\\\\\\", options: .regularExpression)
       return s
+    }
+
+    /// A brace nested inside a group, which `BraceLayout` cannot split out:
+    /// `\underbrace{x}_{y}` becomes a one-column stack with the label set
+    /// small under the term, and `\overbrace{x}^{y}` the same with it above.
+    /// The stack is centered on the math axis, so it sits a little high, but
+    /// the label is kept. A brace with no label keeps the term.
+    static func stackBraceLabels(_ latex: String) -> String {
+      var s = latex
+      for (command, mark, under) in [("underbrace", "_", true), ("overbrace", "^", false)] {
+        while let range = s.range(of: "\\" + command) {
+          guard let term = bracedGroup(in: s, from: range.upperBound) else { break }
+          var rest = term.end
+          while rest < s.endIndex, s[rest] == " " { rest = s.index(after: rest) }
+          var label: String?
+          if rest < s.endIndex, String(s[rest]) == mark {
+            let afterMark = s.index(after: rest)
+            if let group = bracedGroup(in: s, from: afterMark) {
+              label = group.body
+              rest = group.end
+            } else if afterMark < s.endIndex {
+              label = String(s[afterMark])
+              rest = s.index(after: afterMark)
+            }
+          } else {
+            rest = term.end
+          }
+          let replacement: String
+          if let label {
+            let small = "\\scriptstyle " + label
+            replacement = under
+              ? "\\begin{matrix} \(term.body) \\\\ \(small) \\end{matrix}"
+              : "\\begin{matrix} \(small) \\\\ \(term.body) \\end{matrix}"
+          } else {
+            replacement = "{" + term.body + "}"
+          }
+          s.replaceSubrange(range.lowerBound..<rest, with: replacement)
+        }
+      }
+      return s
+    }
+
+    /// The `{...}` group starting at `index` (after spaces), with nested
+    /// braces matched.
+    static func bracedGroup(in s: String, from index: String.Index) -> (body: String, end: String.Index)? {
+      var i = index
+      while i < s.endIndex, s[i] == " " { i = s.index(after: i) }
+      guard i < s.endIndex, s[i] == "{" else { return nil }
+      var depth = 0
+      var j = i
+      while j < s.endIndex {
+        let c = s[j]
+        if c == "\\" {
+          j = s.index(after: j)
+          if j < s.endIndex { j = s.index(after: j) }
+          continue
+        }
+        if c == "{" { depth += 1 }
+        if c == "}" {
+          depth -= 1
+          if depth == 0 {
+            return (String(s[s.index(after: i)..<j]), s.index(after: j))
+          }
+        }
+        j = s.index(after: j)
+      }
+      return nil
     }
 
     /// Replaces `\name` only where the command name ends, so `\big` does not

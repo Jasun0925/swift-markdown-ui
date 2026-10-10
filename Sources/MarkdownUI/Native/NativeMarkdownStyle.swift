@@ -7,6 +7,8 @@
     static let markdownSource = NSAttributedString.Key("MarkdownUI.NativeSource")
     /// Marks a display formula, which the block renderer sets on its own line.
     static let markdownDisplayMath = NSAttributedString.Key("MarkdownUI.NativeDisplayMath")
+    /// Marks inline code, which the text view draws on a rounded tint.
+    static let markdownInlineCode = NSAttributedString.Key("MarkdownUI.NativeInlineCode")
     /// Marks a fenced code block's text, label included; the value is a
     /// `MarkdownCodeBlock` holding its exact source for the Copy button.
     static let markdownCodeBlock = NSAttributedString.Key("MarkdownUI.NativeCodeBlock")

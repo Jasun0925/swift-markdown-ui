@@ -112,6 +112,26 @@
   check("comments and strings get different colors", color(at: "# note") != color(at: "\"hi\""))
   check("a keyword is colored", color(at: "return") != color(at: "x ="))
 
+  // \boxed and \underbrace labels typeset instead of falling back to source
+  let boxedText = render("$$\\boxed{H(p, q) = -\\sum_i p_i \\log q_i}$$")
+  check("\\boxed typesets", attachments(boxedText) == 1 && !boxedText.string.contains("boxed"))
+  let braceLatex = "D = \\underbrace{-\\sum_i p_i \\log q_i}_{\\text{交叉熵 } H(p,q)} - \\underbrace{(-\\sum_i p_i \\log p_i)}_{H(p)}"
+  check("underbrace with labels typesets", NativeMarkdownRendering.typesets(braceLatex, display: true))
+  // The braced terms stay on the baseline: the formula is as deep as its
+  // labels hang, and no taller above the baseline than its tallest term.
+  if let plain = NativeMarkdownRendering.formulaMetrics("D = -\\sum_i p_i \\log q_i - (-\\sum_i p_i \\log p_i)", display: true),
+    let braced = NativeMarkdownRendering.formulaMetrics(braceLatex, display: true)
+  {
+    check("braced terms keep the baseline", abs(braced.ascent - plain.ascent) <= 2)
+    check("brace labels hang below the baseline", braced.descent > plain.descent + 8)
+  } else {
+    check("brace metrics are measurable", false)
+  }
+
+  // Inline code copies as the code alone
+  let inlineCopy = MainActor.assumeIsolated { NativeMarkdownRendering.copiedText(render("use `*WithLogitsLoss` here")) }
+  check("inline code copies without its padding", inlineCopy == "use *WithLogitsLoss here")
+
   // A table column is at least as wide as the formula in it
   let wide = render(
     "| a | b |\n|---|---|\n| $L_\\delta(e) = \\begin{cases} \\frac{1}{2}e^2 & |e| \\le \\delta \\\\ \\delta(|e| - \\frac{1}{2}\\delta) & |e| > \\delta \\end{cases}$ | text |\n")

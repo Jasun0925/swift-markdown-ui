@@ -39,6 +39,13 @@
       FormulaTypesetter.candidates(latex)
     }
 
+    /// Height above and depth below the baseline of `latex` once typeset.
+    public static func formulaMetrics(_ latex: String, display: Bool = false) -> (ascent: CGFloat, descent: CGFloat)? {
+      FormulaTypesetter.typeset(latex, display: display, fontSize: 14, color: .black).map {
+        ($0.image.size.height - $0.descent, $0.descent)
+      }
+    }
+
     /// Whether `latex` typesets without falling back to its source.
     public static func typesets(_ latex: String, display: Bool = false) -> Bool {
       FormulaTypesetter.typeset(latex, display: display, fontSize: 14, color: .black) != nil

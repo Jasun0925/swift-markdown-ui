@@ -99,7 +99,9 @@ import SwiftUI
 ///   }
 ///   // More block styles...
 /// ```
-public struct Theme: Sendable {
+// Theme holds closures and style protocols, which are not Sendable; it is
+// built and read on the main actor by the SwiftUI views that use it.
+public struct Theme: @unchecked Sendable {
   /// The default text style.
   public var text: TextStyle = EmptyTextStyle()
 

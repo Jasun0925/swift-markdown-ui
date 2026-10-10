@@ -54,6 +54,58 @@
       placeCopyButtons()
     }
 
+    /// The tint behind inline code: a rounded rect around the glyphs on each
+    /// line the code spans, drawn under the text.
+    override func drawBackground(in rect: NSRect) {
+      super.drawBackground(in: rect)
+      guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return }
+      let tint = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+          ? NSColor(white: 1, alpha: 0.11) : NSColor(white: 0, alpha: 0.06)
+      }
+      let border = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+          ? NSColor(white: 1, alpha: 0.14) : NSColor(white: 0, alpha: 0.08)
+      }
+      storage.enumerateAttribute(.markdownInlineCode, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        guard value != nil, let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont else { return }
+        let raise = storage.attribute(.baselineOffset, at: range.location, effectiveRange: nil) as? CGFloat ?? 0
+        let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        layout.enumerateEnclosingRects(
+          forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container
+        ) { lineRect, _ in
+          // Where the glyphs are drawn. `location(forGlyphAt:)` is the
+          // baseline within the line fragment and already includes the run's
+          // baseline offset, so it is not subtracted again. The chip is
+          // centered on the code font's cap-to-descender box, so its tint
+          // sits evenly around the letters.
+          _ = raise
+          let glyph = layout.glyphIndex(for: CGPoint(x: lineRect.midX, y: lineRect.midY), in: container)
+          let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+          let baseline = fragment.minY + layout.location(forGlyphAt: glyph).y
+          // A fixed box for every chip, from the tallest and lowest ink a
+          // line of code has: brackets reach above the caps and below the
+          // descenders. Taking it from the font rather than the chip's own
+          // letters keeps `eps` and `log(0)` the same height.
+          let probe = Self.bracketBounds(font)
+          let inkTop = baseline - max(font.capHeight, probe.maxY)
+          let inkBottom = baseline - min(font.descender, probe.minY)
+          let padding: CGFloat = 3
+          let top = inkTop - padding
+          let height = inkBottom - inkTop + padding * 2
+          let chip = CGRect(x: lineRect.minX, y: top, width: lineRect.width, height: height)
+            .offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
+          guard chip.intersects(rect) else { return }
+          let path = NSBezierPath(roundedRect: chip, xRadius: 5, yRadius: 5)
+          tint.setFill()
+          path.fill()
+          border.setStroke()
+          path.lineWidth = 0.5
+          path.stroke()
+        }
+      }
+    }
+
     /// Called after the text changes, so the buttons match the new blocks.
     func textDidReplace() {
       copyButtons.forEach { $0.removeFromSuperview() }
@@ -62,6 +114,20 @@
     }
 
     private var copyButtons: [CodeCopyButton] = []
+
+    /// The ink box of "(" and ")" in `font`, which spans a code line's full
+    /// height: above the caps and below the descenders. Cached per font.
+    private static var bracketInk: [NSFont: CGRect] = [:]
+
+    static func bracketBounds(_ font: NSFont) -> CGRect {
+      if let hit = bracketInk[font] { return hit }
+      var characters: [UniChar] = [0x28, 0x29]
+      var glyphs = [CGGlyph](repeating: 0, count: 2)
+      CTFontGetGlyphsForCharacters(font, &characters, &glyphs, 2)
+      let box = CTFontGetBoundingRectsForGlyphs(font, .horizontal, glyphs, nil, 2)
+      bracketInk[font] = box
+      return box
+    }
 
     /// One Copy button per fenced block, at the right end of its label line.
     private func placeCopyButtons() {
@@ -153,7 +219,8 @@
       for range in ranges {
         storage.enumerateAttribute(.markdownSource, in: range) { value, run, _ in
           if let source = value as? MarkdownSource {
-            // A formula run, written once as the TeX the model wrote.
+            // A formula run, or the padding of an inline code chip (empty),
+            // written as what the model wrote.
             plain += source.text
           } else {
             plain += (storage.string as NSString).substring(with: run)

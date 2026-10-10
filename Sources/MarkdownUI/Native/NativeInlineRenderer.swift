@@ -41,10 +41,28 @@
       case .lineBreak:
         out.append(NSAttributedString(string: "\u{2028}", attributes: attributes(state)))
       case .code(let code):
-        state.monospaced = true
+        // A chip: 0.875em of the code font on a tint the size of the glyphs.
+        // The tint is drawn by the text view (`markdownInlineCode`), not as a
+        // background color, which fills the whole line height and made the
+        // chip taller than the text around it.
+        let font = NSFont.monospacedSystemFont(ofSize: state.size * 0.875, weight: .regular)
         var attrs = attributes(state)
-        attrs[.backgroundColor] = style.inlineCodeBackground
+        attrs[.font] = font
+        attrs[.markdownInlineCode] = true
+        if let lineHeight = state.lineHeight {
+          attrs[.baselineOffset] = NativeMarkdownStyle.baselineOffset(
+            for: style.font(size: state.size), lineHeight: lineHeight)
+        }
+        // Thin spaces give the chip room on both sides. Each carries an
+        // empty source, so a copy writes the code alone.
+        var pad = attrs
+        func padding() -> NSAttributedString {
+          pad[.markdownSource] = MarkdownSource("")
+          return NSAttributedString(string: "\u{2009}", attributes: pad)
+        }
+        out.append(padding())
         out.append(NSAttributedString(string: code, attributes: attrs))
+        out.append(padding())
       case .html(let html):
         let isBreak = HTMLTag(html)?.name.lowercased() == "br"
         out.append(NSAttributedString(string: isBreak ? "\u{2028}" : html, attributes: attributes(state)))
