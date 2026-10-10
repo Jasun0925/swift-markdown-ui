@@ -112,6 +112,21 @@
   check("comments and strings get different colors", color(at: "# note") != color(at: "\"hi\""))
   check("a keyword is colored", color(at: "return") != color(at: "x ="))
 
+  // A table column is at least as wide as the formula in it
+  let wide = render(
+    "| a | b |\n|---|---|\n| $L_\\delta(e) = \\begin{cases} \\frac{1}{2}e^2 & |e| \\le \\delta \\\\ \\delta(|e| - \\frac{1}{2}\\delta) & |e| > \\delta \\end{cases}$ | text |\n")
+  var formulaWidth: CGFloat = 0
+  var columnShare: CGFloat = 0
+  wide.enumerateAttribute(.attachment, in: NSRange(location: 0, length: wide.length)) { value, range, _ in
+    guard let attachment = value as? NSTextAttachment else { return }
+    formulaWidth = attachment.bounds.width
+    let style = wide.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+    if let cell = style?.textBlocks.last as? NSTextTableBlock {
+      columnShare = cell.contentWidth
+    }
+  }
+  check("a formula column is wide enough for its formula", columnShare / 100 * 760 >= formulaWidth)
+
   // A code block with no language: no label line, and no coloring
   let bare = render("```\nL = -log y_k + 1\n```")
   check("an unlabeled block starts with its code", bare.string.hasPrefix("L = -log"))
@@ -163,7 +178,9 @@
           return torch.max(tau * error, (tau - 1) * error).mean()
       ```
       """
-    let png = MainActor.assumeIsolated { NativeMarkdownRendering.snapshot(sample, width: 640, fontSize: CGFloat(Double(ProcessInfo.processInfo.environment["FONT"] ?? "14") ?? 14)) }
+    let chosen = ProcessInfo.processInfo.environment["SAMPLE"]
+      .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? sample
+    let png = MainActor.assumeIsolated { NativeMarkdownRendering.snapshot(chosen, width: 640, fontSize: CGFloat(Double(ProcessInfo.processInfo.environment["FONT"] ?? "14") ?? 14)) }
     try? png?.write(to: URL(fileURLWithPath: out))
     print("snapshot:", out)
   }

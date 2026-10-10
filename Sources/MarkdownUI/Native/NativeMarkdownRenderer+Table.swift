@@ -21,8 +21,24 @@
       table.setContentWidth(100, type: .percentageValueType)
       table.setWidth(context.indent, type: .absoluteValueType, for: .margin, edge: .minX)
 
-      let widths = Self.columnWidths(rows: rows, columns: columns)
-      for (rowIndex, row) in rows.enumerated() {
+      // Each cell is rendered once: its text is both what is measured for the
+      // column widths and what is appended below.
+      let rendered: [[NSMutableAttributedString]] = rows.enumerated().map { rowIndex, row in
+        (0..<columns).map { column in
+          var state = baseState(context, size: style.tableFontSize, lineHeight: style.tableLineHeight)
+          state.weight = rowIndex == 0 ? .medium : nil
+          let content = column < row.cells.count ? row.cells[column].content : []
+          let text = context.inline.render(content, state: state)
+          if text.length == 0 {
+            // An empty cell still needs a character to hold its block.
+            text.append(NSAttributedString(string: "\u{200B}", attributes: context.inline.attributes(state)))
+          }
+          return text
+        }
+      }
+      let widths = Self.columnWidths(cells: rendered, columns: columns)
+      table.layoutAlgorithm = .fixedLayoutAlgorithm
+      for (rowIndex, _) in rows.enumerated() {
         let isHeader = rowIndex == 0
         for column in 0..<columns {
           let cell = NSTextTableBlock(
@@ -50,41 +66,68 @@
           case .right: paragraph.alignment = .right
           default: paragraph.alignment = .natural
           }
-          var state = baseState(context, size: style.tableFontSize, lineHeight: style.tableLineHeight)
-          state.weight = isHeader ? .medium : nil
-          let content = column < row.cells.count ? row.cells[column].content : []
-          let text = context.inline.render(content, state: state)
-          if text.length == 0 {
-            // An empty cell still needs a character to hold its block.
-            text.append(NSAttributedString(string: "\u{200B}", attributes: context.inline.attributes(state)))
-          }
-          appendLine(text, paragraph: paragraph, to: out)
+          appendLine(rendered[rowIndex][column], paragraph: paragraph, to: out)
         }
       }
       appendSpacer(context: context, to: out)
     }
 
-    /// Each column's share of the table width, in percent, from the length
-    /// of its longest cell. AppKit's automatic layout spreads leftover width
-    /// evenly, so a column of short values ("none", "τ") was as wide as the
-    /// one holding sentences. A floor keeps short columns readable and a
-    /// ceiling stops one long cell from squeezing the rest.
-    static func columnWidths(rows: [RawTableRow], columns: Int) -> [CGFloat] {
-      var lengths = [CGFloat](repeating: 1, count: columns)
-      for row in rows {
-        for (index, cell) in row.cells.enumerated() where index < columns {
-          let text = cell.content.renderPlainText()
-          // A CJK character is about two Latin characters wide.
-          let width = text.unicodeScalars.reduce(CGFloat(0)) { $0 + ($1.value > 0x2E80 ? 2 : 1) }
-          lengths[index] = max(lengths[index], min(width, 60))
+    /// Each column's share of the table width, in percent, from the rendered
+    /// cells.
+    ///
+    /// A column is never narrower than its widest unbreakable piece, which is
+    /// what a formula image is: a cell narrower than its formula draws the
+    /// image over the next column. The rest of the width goes to columns in
+    /// proportion to their text, so a column of short values is not as wide
+    /// as one holding sentences. The width is a share of the table, so the
+    /// shares are computed for a typical column and still hold when the
+    /// window is narrower or wider.
+    static func columnWidths(cells: [[NSAttributedString]], columns: Int) -> [CGFloat] {
+      // The answer's text column, which a table fills.
+      let tableWidth: CGFloat = NativeMarkdownStyle.readableWidth
+      let padding: CGFloat = 32
+      var minimum = [CGFloat](repeating: 24, count: columns)
+      var natural = [CGFloat](repeating: 24, count: columns)
+      for row in cells {
+        for (index, text) in row.enumerated() where index < columns {
+          minimum[index] = max(minimum[index], widestUnbreakable(text) + padding)
+          natural[index] = max(natural[index], min(text.size().width, tableWidth * 0.6) + padding)
         }
       }
-      let total = lengths.reduce(0, +)
-      let floor = 100 / CGFloat(columns) * 0.5
-      var shares = lengths.map { max($0 / total * 100, floor) }
-      let scale = 100 / shares.reduce(0, +)
-      shares = shares.map { ($0 * scale * 0.98).rounded(.down) }
-      return shares
+      // Start every column at its minimum, then share what is left by the
+      // extra width each would like.
+      var widths = minimum
+      let spare = tableWidth - minimum.reduce(0, +)
+      if spare > 0 {
+        let wants = zip(natural, minimum).map { max(0, $0 - $1) }
+        let totalWant = wants.reduce(0, +)
+        if totalWant > 0 {
+          for index in widths.indices {
+            widths[index] += spare * wants[index] / totalWant
+          }
+        } else {
+          widths = widths.map { $0 + spare / CGFloat(columns) }
+        }
+      }
+      let total = widths.reduce(0, +)
+      return widths.map { ($0 / total * 100 * 0.99).rounded(.down) }
+    }
+
+    /// The widest piece of `text` a line cannot break: a formula image or the
+    /// longest word.
+    static func widestUnbreakable(_ text: NSAttributedString) -> CGFloat {
+      var widest: CGFloat = 0
+      let full = NSRange(location: 0, length: text.length)
+      text.enumerateAttribute(.attachment, in: full) { value, _, _ in
+        if let attachment = value as? NSTextAttachment {
+          widest = max(widest, attachment.bounds.width)
+        }
+      }
+      let string = text.string as NSString
+      string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: .byWords) { _, range, _, _ in
+        widest = max(widest, text.attributedSubstring(from: range).size().width)
+      }
+      return ceil(widest)
     }
   }
 #endif
