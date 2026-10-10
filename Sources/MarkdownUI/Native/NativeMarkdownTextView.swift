@@ -46,6 +46,77 @@
       let widthChanged = newSize.width != frame.width
       super.setFrameSize(newSize)
       if widthChanged { invalidateIntrinsicContentSize() }
+      needsLayout = true
+    }
+
+    override func layout() {
+      super.layout()
+      placeCopyButtons()
+    }
+
+    /// Called after the text changes, so the buttons match the new blocks.
+    func textDidReplace() {
+      copyButtons.forEach { $0.removeFromSuperview() }
+      copyButtons.removeAll()
+      needsLayout = true
+    }
+
+    private var copyButtons: [CodeCopyButton] = []
+
+    /// One Copy button per fenced block, at the right end of its label line.
+    private func placeCopyButtons() {
+      guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return }
+      var blocks: [(MarkdownCodeBlock, NSRange)] = []
+      storage.enumerateAttribute(
+        .markdownCodeBlock, in: NSRange(location: 0, length: storage.length)
+      ) { value, range, _ in
+        if let block = value as? MarkdownCodeBlock { blocks.append((block, range)) }
+      }
+      while copyButtons.count < blocks.count {
+        let button = CodeCopyButton()
+        addSubview(button)
+        copyButtons.append(button)
+      }
+      while copyButtons.count > blocks.count {
+        copyButtons.removeLast().removeFromSuperview()
+      }
+      layout.ensureLayout(for: container)
+      for (button, (block, range)) in zip(copyButtons, blocks) {
+        button.code = block.code
+        let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
+        let line = layout.lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+        let size = button.fittingSize
+        button.frame = CGRect(
+          x: line.maxX - size.width - 6,
+          y: line.minY + (line.height - size.height) / 2,
+          width: size.width,
+          height: size.height
+        )
+      }
+    }
+
+    /// NSTextView sets the I-beam on every mouse move over its bounds, which
+    /// overrides the Copy buttons' own cursor rects. Over a button the hand
+    /// is set instead.
+    override func mouseMoved(with event: NSEvent) {
+      if isOverCopyButton(event) {
+        NSCursor.pointingHand.set()
+        return
+      }
+      super.mouseMoved(with: event)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+      if isOverCopyButton(event) {
+        NSCursor.pointingHand.set()
+        return
+      }
+      super.cursorUpdate(with: event)
+    }
+
+    private func isOverCopyButton(_ event: NSEvent) -> Bool {
+      let point = convert(event.locationInWindow, from: nil)
+      return copyButtons.contains { !$0.isHidden && $0.frame.contains(point) }
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -81,6 +152,65 @@
       }
       return plain.replacingOccurrences(of: "\u{2028}", with: "\n")
         .replacingOccurrences(of: "\u{200B}", with: "")
+    }
+  }
+
+  /// "Copy" on a code block. Writes the block's exact source and says
+  /// "Copied" for a moment.
+  final class CodeCopyButton: NSButton {
+    var code = ""
+    private var resetWork: DispatchWorkItem?
+
+    init() {
+      super.init(frame: .zero)
+      isBordered = false
+      bezelStyle = .inline
+      setButtonType(.momentaryChange)
+      font = .systemFont(ofSize: 11)
+      contentTintColor = .secondaryLabelColor
+      image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+      imagePosition = .imageLeading
+      imageScaling = .scaleProportionallyDown
+      title = Self.copyTitle
+      toolTip = Self.copyTitle
+      setAccessibilityLabel("Copy code")
+      target = self
+      action = #selector(copyCode)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    private static let copyTitle = "Copy"
+
+    override func resetCursorRects() {
+      addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func updateTrackingAreas() {
+      super.updateTrackingAreas()
+      trackingAreas.forEach(removeTrackingArea)
+      addTrackingArea(
+        NSTrackingArea(
+          rect: .zero, options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect], owner: self))
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+      NSCursor.pointingHand.set()
+    }
+
+    @objc private func copyCode() {
+      let pasteboard = NSPasteboard.general
+      pasteboard.clearContents()
+      pasteboard.setString(code, forType: .string)
+      title = "Copied"
+      image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
+      resetWork?.cancel()
+      let work = DispatchWorkItem { [weak self] in
+        self?.title = Self.copyTitle
+        self?.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+      }
+      resetWork = work
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
     }
   }
 #endif

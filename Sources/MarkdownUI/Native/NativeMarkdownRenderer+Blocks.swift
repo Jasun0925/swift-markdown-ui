@@ -11,7 +11,8 @@
       to out: NSMutableAttributedString,
       marker: (Int) -> String
     ) {
-      let width = (style.fontSize * 1.6).rounded()
+      // DSH indents a list 18px and puts the marker in that indent.
+      let width = 18 + max(0, style.delta)
       for (index, item) in items.enumerated() {
         var inner = context
         inner.indent += width
@@ -27,11 +28,13 @@
           append(child, context: &inner, to: out)
         }
         // The first line of the item's first block carries the marker.
+        let markerFont = style.font()
         let markerText = NSMutableAttributedString(
           string: label + "\t",
           attributes: [
-            .font: style.font(),
+            .font: markerFont,
             .foregroundColor: style.secondaryColor,
+            .baselineOffset: NativeMarkdownStyle.baselineOffset(for: markerFont, lineHeight: style.bodyLineHeight),
           ])
         if start == out.length {
           appendLine(markerText, context: inner, to: out)
@@ -61,29 +64,45 @@
     /// block, so the code is selectable with the prose around it.
     func appendCode(_ content: String, language: String?, context: Context, to out: NSMutableAttributedString) {
       let box = NSTextBlock()
-      box.backgroundColor = style.codeBackground
+      box.backgroundColor = style.codeBlockBackground
       box.setContentWidth(100, type: .percentageValueType)
-      box.setWidth(10, type: .absoluteValueType, for: .padding)
+      box.setWidth(16, type: .absoluteValueType, for: .padding, edge: .minX)
+      box.setWidth(16, type: .absoluteValueType, for: .padding, edge: .maxX)
+      box.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minY)
+      box.setWidth(16, type: .absoluteValueType, for: .padding, edge: .maxY)
       box.setWidth(context.indent, type: .absoluteValueType, for: .margin, edge: .minX)
       var inner = context
       inner.indent = 0
       inner.textBlocks = context.textBlocks + [box]
       let paragraph = paragraphStyle(inner, spacing: 0)
-      paragraph.lineSpacing = 2
+      paragraph.minimumLineHeight = style.codeLineHeight
+      let codeFont = NSFont.monospacedSystemFont(ofSize: style.codeFontSize, weight: .regular)
+      let codeRaise = NativeMarkdownStyle.baselineOffset(for: codeFont, lineHeight: style.codeLineHeight)
       var code = content
       if code.hasSuffix("\n") { code.removeLast() }
-      if let language = language?.split(separator: " ").first, !language.isEmpty {
-        let label = NSMutableAttributedString(
-          string: String(language) + "\n",
-          attributes: [.font: style.font(size: style.fontSize * 0.8), .foregroundColor: style.secondaryColor])
-        label.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: label.length))
-        out.append(label)
-      }
-      let body = NSMutableAttributedString(
-        string: code + "\n",
-        attributes: [.font: style.font(monospaced: true), .foregroundColor: style.textColor])
-      body.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: body.length))
+      let marker = MarkdownCodeBlock(code)
+      let start = out.length
+      let language = language?.split(separator: " ").first.map(String.init) ?? ""
+      // The label line always exists: the Copy button sits at its right end.
+      let labelFont = style.font(size: 12 + style.delta)
+      let label = NSMutableAttributedString(
+        string: (language.isEmpty ? "\u{200B}" : language) + "\n",
+        attributes: [.font: labelFont, .foregroundColor: style.secondaryColor])
+      let labelParagraph = (paragraph.mutableCopy() as? NSMutableParagraphStyle) ?? paragraph
+      labelParagraph.minimumLineHeight = 26
+      labelParagraph.paragraphSpacing = 10
+      label.addAttribute(.baselineOffset, value: NativeMarkdownStyle.baselineOffset(for: labelFont, lineHeight: 26),
+                         range: NSRange(location: 0, length: label.length))
+      label.addAttribute(.paragraphStyle, value: labelParagraph, range: NSRange(location: 0, length: label.length))
+      out.append(label)
+      let body = CodeHighlighter(style: style).highlight(code, language: language)
+      body.append(NSAttributedString(string: "\n", attributes: [.font: codeFont]))
+      let bodyRange = NSRange(location: 0, length: body.length)
+      body.addAttribute(.font, value: codeFont, range: bodyRange)
+      body.addAttribute(.baselineOffset, value: codeRaise, range: bodyRange)
+      body.addAttribute(.paragraphStyle, value: paragraph, range: bodyRange)
       out.append(body)
+      out.addAttribute(.markdownCodeBlock, value: marker, range: NSRange(location: start, length: out.length - start))
       appendSpacer(context: context, to: out)
     }
 

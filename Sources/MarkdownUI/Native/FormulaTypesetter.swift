@@ -12,8 +12,8 @@
   ///
   /// SwiftMath fails a whole formula on one command it does not know. The
   /// source is tried as written, then with the commands it lacks rewritten to
-  /// ones it has, then with non-Latin `\text{}` dropped (the math font has no
-  /// CJK glyphs). When every attempt fails the caller keeps the source text.
+  /// ones it has. Chinese and other non-ASCII text is drawn through text atoms
+  /// (`TextAtoms`). When every attempt fails the caller keeps the source text.
   enum FormulaTypesetter {
     private static let cache = NSCache<NSString, Box>()
 
@@ -38,12 +38,15 @@
       return result
     }
 
-    /// The source, then progressively softer rewrites of it.
+    /// What SwiftMath is given: the source with non-ASCII runs turned into
+    /// text atoms and its unsupported syntax rewritten.
+    ///
+    /// The rewrite is not a fallback. SwiftMath does not fail on everything
+    /// it misreads: `\\[4pt]` typesets "[4pt]" as text with no error, so a
+    /// source that "worked" can still be wrong. Nothing the model wrote is
+    /// dropped: a formula that still fails is shown as its source.
     static func candidates(_ latex: String) -> [String] {
-      let rewritten = rewrite(latex)
-      let latinOnly = dropNonLatinText(rewritten)
-      var seen = Set<String>()
-      return [latex, rewritten, latinOnly].filter { seen.insert($0).inserted }
+      [TextAtoms.substitute(rewrite(latex))]
     }
 
     /// Commands SwiftMath lacks, mapped to ones it has. `\underbrace{x}_{y}`
@@ -64,6 +67,9 @@
       for (name, replacement) in renames {
         s = replacingCommand(s, name, with: replacement)
       }
+      // `\\[4pt]` is a row break with extra space; SwiftMath reads only `\\`.
+      s = s.replacingOccurrences(
+        of: "\\\\\\\\\\s*\\[[^\\]]*\\]", with: "\\\\\\\\", options: .regularExpression)
       return s
     }
 
@@ -77,22 +83,15 @@
       return s.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
     }
 
-    /// `\text{...}` that is not plain Latin becomes empty: SwiftMath's math
-    /// fonts have no CJK glyphs and fail the formula instead.
-    static func dropNonLatinText(_ s: String) -> String {
-      s.replacingOccurrences(
-        of: "\\\\(text|mbox|textrm|mathrm)\\{[^{}]*[^\\x00-\\x7F][^{}]*\\}",
-        with: "",
-        options: .regularExpression
-      )
-    }
 
     private static func render(_ latex: String, display: Bool, fontSize: CGFloat, color: NSColor)
       -> TypesetFormula?
     {
+      // Latin Modern's x-height is smaller than the system font's, so a
+      // formula at the text's point size reads a size too small beside it.
       var math = MathImage(
         latex: latex,
-        fontSize: display ? fontSize * 1.12 : fontSize,
+        fontSize: fontSize * (display ? 1.2 : 1.1),
         textColor: color,
         labelMode: display ? .display : .text,
         textAlignment: .left

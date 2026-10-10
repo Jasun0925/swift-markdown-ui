@@ -33,6 +33,37 @@
       view.setSelectedRange(NSRange(location: 0, length: text.length))
       return view.copiedString()
     }
+
+    /// The TeX handed to SwiftMath for `latex`, in the order it is tried.
+    public static func preparedLatex(_ latex: String) -> [String] {
+      FormulaTypesetter.candidates(latex)
+    }
+
+    /// Whether `latex` typesets without falling back to its source.
+    public static func typesets(_ latex: String, display: Bool = false) -> Bool {
+      FormulaTypesetter.typeset(latex, display: display, fontSize: 14, color: .black) != nil
+    }
+
+    /// `source` drawn at `width` into a PNG, as the text view would show it.
+    /// For checking layout by eye; the copy buttons are subviews and drawn too.
+    @MainActor public static func snapshot(_ source: String, width: CGFloat, fontSize: CGFloat = 14, isDark: Bool = false) -> Data? {
+      let view = NativeMarkdownTextView.make()
+      view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+      view.textStorage?.setAttributedString(attributedString(source, fontSize: fontSize, isDark: isDark))
+      view.textDidReplace()
+      let height = view.measuredHeight(for: width)
+      view.frame = CGRect(x: 0, y: 0, width: width, height: height)
+      view.layoutSubtreeIfNeeded()
+      let host = NSView(frame: view.frame.insetBy(dx: -16, dy: -16).offsetBy(dx: 16, dy: 16))
+      host.wantsLayer = true
+      host.layer?.backgroundColor = (isDark ? NSColor(white: 0.12, alpha: 1) : NSColor.white).cgColor
+      view.frame.origin = CGPoint(x: 16, y: 16)
+      host.addSubview(view)
+      host.appearance = view.appearance
+      guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+      host.cacheDisplay(in: host.bounds, to: rep)
+      return rep.representation(using: .png, properties: [:])
+    }
   }
 
   public struct NativeMarkdown: View {
@@ -79,6 +110,7 @@
       coordinator.style = style
       let rendered = NativeMarkdownRenderer(style: style).render(source)
       view.textStorage?.setAttributedString(rendered)
+      view.textDidReplace()
       view.invalidateIntrinsicContentSize()
     }
 

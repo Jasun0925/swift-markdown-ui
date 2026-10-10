@@ -4,6 +4,11 @@
   /// The running style while inlines are walked.
   struct NativeInlineState {
     var size: CGFloat
+    /// The line height the paragraph sets, so the text can be raised to the
+    /// middle of it. `nil` leaves the text on the natural baseline.
+    var lineHeight: CGFloat? = nil
+    /// An explicit weight; `nil` follows `bold`.
+    var weight: NSFont.Weight? = nil
     var bold = false
     var italic = false
     var monospaced = false
@@ -86,11 +91,16 @@
 
   extension NativeInlineRenderer {
     func attributes(_ state: NativeInlineState) -> [NSAttributedString.Key: Any] {
+      let font = style.font(
+        size: state.size, weight: state.weight ?? (state.bold ? .semibold : .regular),
+        italic: state.italic, monospaced: state.monospaced)
       var attrs: [NSAttributedString.Key: Any] = [
-        .font: style.font(
-          size: state.size, bold: state.bold, italic: state.italic, monospaced: state.monospaced),
+        .font: font,
         .foregroundColor: state.color,
       ]
+      if let lineHeight = state.lineHeight {
+        attrs[.baselineOffset] = NativeMarkdownStyle.baselineOffset(for: font, lineHeight: lineHeight)
+      }
       if state.strikethrough {
         attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
       }
@@ -115,22 +125,29 @@
       }
       let attachment = NSTextAttachment()
       attachment.image = typeset.image
+      // Inline math rides the text's raised baseline. A display formula is
+      // its own line, which grows to the formula's height.
+      let raise: CGFloat
+      if !formula.display, let lineHeight = state.lineHeight {
+        raise = NativeMarkdownStyle.baselineOffset(for: style.font(size: state.size), lineHeight: lineHeight)
+      } else {
+        raise = 0
+      }
       attachment.bounds = CGRect(
-        x: 0, y: -typeset.descent, width: typeset.image.size.width, height: typeset.image.size.height)
+        x: 0, y: raise - typeset.descent, width: typeset.image.size.width, height: typeset.image.size.height)
       let piece = NSMutableAttributedString(attachment: attachment)
       var attrs = attributes(state)
+      // The raise is in the attachment's bounds; a baseline offset on top
+      // would lift it twice.
+      attrs[.baselineOffset] = nil
       attrs[.markdownSource] = MarkdownSource(formula.source)
       piece.addAttributes(attrs, range: NSRange(location: 0, length: piece.length))
       if formula.display {
-        // A display formula takes its own line inside the current block.
-        if out.length > 0, !out.string.hasSuffix("\u{2028}") {
-          out.append(NSAttributedString(string: "\u{2028}", attributes: attributes(state)))
-        }
-        out.append(piece)
-        out.append(NSAttributedString(string: "\u{2028}", attributes: attributes(state)))
-      } else {
-        out.append(piece)
+        // The block renderer gives a marked display formula a paragraph of
+        // its own, with space above and below.
+        piece.addAttribute(.markdownDisplayMath, value: true, range: NSRange(location: 0, length: piece.length))
       }
+      out.append(piece)
     }
 
     /// Only web and mail links become clickable; `javascript:` and file
