@@ -185,6 +185,18 @@
   {
     check("an underbrace inside \\boxed keeps its brace", boxedBrace.descent > plain.descent + 8)
   }
+  // Modular arithmetic, from an ElGamal answer.
+  for latex in [
+    "r = g^k \\bmod p", "s = k^{-1}(H(m) - xr) \\bmod (p-1)", "g^{H(m)} \\equiv h^r \\cdot r^s \\pmod p",
+    "a \\equiv b \\pmod{n}", "a \\mod p", "x \\pod{7}", "s = c_1^{\\,x} = g^{yx} \\bmod p",
+    "\\boxed{m = c_2 \\cdot (c_1^{\\,x})^{-1} \\bmod p}",
+  ] {
+    check("\(latex) typesets", NativeMarkdownRendering.typesets(latex))
+  }
+  check("\\pmod keeps its argument",
+    NativeMarkdownRendering.preparedLatex("a \\pmod{n}").first?.contains("mod}\\;n)") == true)
+  check("\\bmod is not read inside another name",
+    NativeMarkdownRendering.preparedLatex("\\bmodx").first == "\\bmodx")
   // A part that is only spacing, left after splitting at a brace.
   check("spacing next to a brace typesets", NativeMarkdownRendering.typesets(
     "\\boxed{\\;\\mathcal{L}(x) = \\underbrace{\\mathbb{E}_{q(z|x)}[\\log p(x|z)]}_{\\text{重构项}} \\;-\\; "

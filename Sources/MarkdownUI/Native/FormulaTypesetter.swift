@@ -75,6 +75,7 @@
         s = replacingCommand(s, name, with: replacement)
       }
       s = scriptArrows(s)
+      s = modulo(s)
       // `\\[4pt]` is a row break with extra space; SwiftMath reads only `\\`.
       s = s.replacingOccurrences(
         of: "\\\\\\\\\\s*\\[[^\\]]*\\]", with: "\\\\\\\\", options: .regularExpression)
@@ -137,6 +138,43 @@
         }
       }
       return s
+    }
+
+    /// `\bmod`, `\mod`, `\pmod{p}`, `\pod{p}`, which SwiftMath lacks, as
+    /// TeX sets them: `a \bmod p` is "a mod p" with a medium space either
+    /// side, `\mod p` a wider one, `\pmod p` "(mod p)" after a quad.
+    static func modulo(_ latex: String) -> String {
+      var s = latex.replacingOccurrences(
+        of: "\\\\bmod(?![A-Za-z])", with: "\\\\;\\\\mathrm{mod}\\\\;", options: .regularExpression)
+      for (command, open, close) in [("pmod", "\\quad(\\mathrm{mod}\\;", ")"), ("pod", "\\quad(", ")")] {
+        var from = s.startIndex
+        while let range = s.range(of: "\\" + command, range: from..<s.endIndex) {
+          // `\pmodx` is another command; skip it.
+          if let next = s[range.upperBound...].first, next.isLetter {
+            from = range.upperBound
+            continue
+          }
+          // The argument: a `{group}`, else the next token.
+          var rest = s[range.upperBound...].drop { $0 == " " }
+          var argument = ""
+          if let group = bracedGroup(in: s, from: rest.startIndex) {
+            argument = group.body
+            rest = s[group.end...]
+          } else if rest.first == "\\" {
+            let name = rest.dropFirst().prefix { $0.isLetter }
+            argument = "\\" + (name.isEmpty ? String(rest.dropFirst().prefix(1)) : String(name))
+            rest = rest.dropFirst(argument.count)
+          } else if let first = rest.first {
+            argument = String(first)
+            rest = rest.dropFirst()
+          }
+          let head = String(s[..<range.lowerBound]) + open + argument + close
+          s = head + String(rest)
+          from = s.index(s.startIndex, offsetBy: head.count)
+        }
+      }
+      return s.replacingOccurrences(
+        of: "\\\\mod(?![A-Za-z])", with: "\\\\quad\\\\mathrm{mod}\\\\;", options: .regularExpression)
     }
 
     /// `\xrightarrow[b]{a}` inside a group, where `BraceLayout` cannot draw
