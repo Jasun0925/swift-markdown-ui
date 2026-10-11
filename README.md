@@ -1,19 +1,14 @@
-# MarkdownUI
+# MarkdownUI (NativeMarkdown fork)
 
-Display and customize Markdown text in SwiftUI.
+A macOS Markdown renderer for chat answers, with TeX math.
 
 > [!NOTE]
 > A fork of [gonzalezreal/swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui),
-> maintained by Chen Sun. The upstream `Markdown` view is unchanged. The fork adds
-> [`NativeMarkdown`](#nativemarkdown-macos), a macOS renderer for chat answers with TeX math.
-> Upstream is in [maintenance mode](https://github.com/gonzalezreal/swift-markdown-ui/discussions/437).
+> maintained by Chen Sun. It keeps upstream's cmark-gfm parser and replaces the SwiftUI
+> `Markdown` view, its themes, and its iOS/tvOS/watchOS support with `NativeMarkdown`.
+> For the SwiftUI view, use upstream.
 
-* [NativeMarkdown (macOS)](#nativemarkdown-macos)
-* [Markdown view](#markdown-view)
-* [Requirements](#requirements)
-* [Installation](#installation)
-
-## NativeMarkdown (macOS)
+## NativeMarkdown
 
 `NativeMarkdown` draws a whole document in one AppKit text view, so a selection runs from a
 heading through a table to a code block, and Copy returns the text.
@@ -21,7 +16,7 @@ heading through a table to a code block, and Copy returns the text.
 ```swift
 import MarkdownUI
 
-NativeMarkdown(answer, fontSize: 14)
+NativeMarkdown(answer, fontSize: 14, imageDirectory: workspaceURL)
 ```
 
 | Feature | Behavior |
@@ -30,52 +25,20 @@ NativeMarkdown(answer, fontSize: 14)
 | Parsing | Formulas are taken out before Markdown, so `_`, `*`, and `\|` inside them stay math. An unclosed `$` and prices like `$5` stay text. |
 | Extra TeX | Chinese in `\text{}`, `\underbrace` / `\overbrace` with labels, `\xrightarrow`, `\bmod` / `\pmod`, `\dots`, `\tfrac`, `\operatorname`, `\\[4pt]`. `\boxed{}` is set without a frame. |
 | Fallback | A formula that still fails is shown as its source. |
+| Images | `![alt](path)` is read from `imageDirectory`: only image files inside it, never through `../` or a symlink out, never from the web. Wide images fit the column. |
 | Tables | `NSTextTable` cells, columns sized to their content. |
 | Code | Fenced blocks with a Copy button. A named language is highlighted. |
 | Layout | Spacing scales with the font size. The view sizes to its text and passes scrolling to its parent. |
 | Safety | Raw HTML is shown as code, never run. Only `http`, `https`, and `mailto` links open. |
 
-Checks run as an executable, because the Command Line Tools ship no XCTest:
-
-```sh
-swift run NativeMarkdownCheck
-```
-
-## Markdown view
-
-The upstream SwiftUI view, for every platform. It follows the
-[GitHub Flavored Markdown Spec](https://github.github.com/gfm/).
-
-```swift
-Markdown("**MarkdownUI** is a native Markdown renderer for SwiftUI.")
-  .markdownTheme(.gitHub)
-```
-
-| To | Use |
-|---|---|
-| Pick a built-in theme | `.markdownTheme(.basic)`, `.gitHub`, or `.docC` |
-| Change one text style | `.markdownTextStyle(\.code) { … }` |
-| Change one block style | `.markdownBlockStyle(\.blockquote) { configuration in … }` |
-| Write your own theme | `Theme().code { … }.paragraph { … }` |
-| Build content in code | `Markdown { Heading(.level2) { "Title" } … }` |
-| Parse once, show later | `Markdown(MarkdownContent(string))` |
-
-The [upstream README](https://github.com/gonzalezreal/swift-markdown-ui#readme) and
-[documentation](https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui/main/documentation/markdownui)
-cover each of these with examples. [Examples/Demo](Examples/Demo/) shows them in an app.
-
 ## Requirements
 
-| | macOS | iOS | tvOS | watchOS |
-|---|---|---|---|---|
-| `Markdown` | 12.0 | 15.0 | 15.0 | 8.0 |
-| Tables, multi-image paragraphs | 13.0 | 16.0 | 16.0 | 9.0 |
-| `NativeMarkdown` | 12.0 (SwiftUI sizing needs 13.0) | none | none | none |
+macOS 12 or later; the SwiftUI sizing `NativeMarkdown` uses needs macOS 13.
 
 ## Installation
 
 ```swift
-.package(url: "https://github.com/Jasun0925/swift-markdown-ui", from: "2.5.3")
+.package(url: "https://github.com/Jasun0925/swift-markdown-ui", from: "3.0.0")
 ```
 
 ```swift
@@ -84,5 +47,10 @@ cover each of these with examples. [Examples/Demo](Examples/Demo/) shows them in
 ]),
 ```
 
-In Xcode, choose **File ▸ Add Packages…** and enter the same URL. For upstream without
-`NativeMarkdown`, use `https://github.com/gonzalezreal/swift-markdown-ui`.
+## Checks
+
+The Command Line Tools ship no XCTest, so the checks are an executable:
+
+```sh
+swift run NativeMarkdownCheck
+```

@@ -4,12 +4,11 @@ import PackageDescription
 
 let package = Package(
   name: "swift-markdown-ui",
+  // `NativeMarkdown` is AppKit, so this fork builds for macOS only. The
+  // upstream SwiftUI `Markdown` view, its themes, and its iOS/tvOS/watchOS
+  // support were removed; use gonzalezreal/swift-markdown-ui for those.
   platforms: [
-    .macOS(.v12),
-    .iOS(.v15),
-    .tvOS(.v15),
-    .macCatalyst(.v15),
-    .watchOS(.v8),
+    .macOS(.v12)
   ],
   products: [
     .library(
@@ -18,8 +17,6 @@ let package = Package(
     )
   ],
   dependencies: [
-    .package(url: "https://github.com/gonzalezreal/NetworkImage", from: "6.0.0"),
-    .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.10.0"),
     .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.4.0"),
     // Typesets TeX for the native macOS renderer (`NativeMarkdown`).
     .package(url: "https://github.com/mgriebling/SwiftMath", from: "1.7.3"),
@@ -30,25 +27,16 @@ let package = Package(
       dependencies: [
         .product(name: "cmark-gfm", package: "swift-cmark"),
         .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
-        .product(name: "NetworkImage", package: "NetworkImage"),
-        .product(name: "SwiftMath", package: "SwiftMath", condition: .when(platforms: [.macOS])),
+        .product(name: "SwiftMath", package: "SwiftMath"),
       ]
     ),
     // Checks for the native macOS renderer. An executable rather than a test
-    // target: the upstream snapshot tests need XCTest, which the Command Line
-    // Tools do not ship. Run with `swift run NativeMarkdownCheck`.
+    // target, because the Command Line Tools ship no XCTest. Run with
+    // `swift run NativeMarkdownCheck`.
     .executableTarget(
       name: "NativeMarkdownCheck",
       dependencies: ["MarkdownUI"],
       path: "Tests/NativeMarkdownCheck"
-    ),
-    .testTarget(
-      name: "MarkdownUITests",
-      dependencies: [
-        "MarkdownUI",
-        .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
-      ],
-      exclude: ["__Snapshots__"]
     ),
   ]
 )
