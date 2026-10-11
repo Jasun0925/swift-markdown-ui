@@ -46,6 +46,11 @@
       }
     }
 
+    /// Width of `latex` once typeset at 14pt.
+    public static func formulaWidth(_ latex: String, display: Bool = false) -> CGFloat? {
+      FormulaTypesetter.typeset(latex, display: display, fontSize: 14, color: .black)?.image.size.width
+    }
+
     /// Whether `latex` typesets without falling back to its source.
     public static func typesets(_ latex: String, display: Bool = false) -> Bool {
       FormulaTypesetter.typeset(latex, display: display, fontSize: 14, color: .black) != nil

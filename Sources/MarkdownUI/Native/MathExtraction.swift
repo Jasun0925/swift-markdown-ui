@@ -73,7 +73,11 @@
         }
         if let found = formula(chars, at: i) {
           let source = String(chars[i..<found.end])
-          math.append(ExtractedMath(latex: found.latex, display: found.display, source: source))
+          // GFM reads `\|` in a table row as a literal pipe before anything
+          // else sees the cell, so `$p(x\|z)$` in a table means `p(x|z)`.
+          let latex = onTableRow(chars, at: i)
+            ? found.latex.replacingOccurrences(of: "\\|", with: "|") : found.latex
+          math.append(ExtractedMath(latex: latex, display: found.display, source: source))
           let token = token(math.count - 1)
           // Kept in place: a list item or a table cell stays one block. The
           // renderer gives a display formula its own centered line.
@@ -85,6 +89,15 @@
         i += 1
       }
       return output
+    }
+
+    /// Whether the line holding `index` is a table row (starts with `|`).
+    private static func onTableRow(_ chars: [Character], at index: Int) -> Bool {
+      var start = index
+      while start > 0, chars[start - 1] != "\n" { start -= 1 }
+      var j = start
+      while j < index, chars[j] == " " || chars[j] == "\t" { j += 1 }
+      return j < index && chars[j] == "|"
     }
 
     /// The index after a backtick code span that starts at `start`, or just

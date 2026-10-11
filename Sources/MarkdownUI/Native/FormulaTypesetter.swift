@@ -28,60 +28,20 @@
       let key = "\(display)|\(fontSize)|\(color.description)|\(latex)" as NSString
       if let hit = cache.object(forKey: key) { return hit.value }
       var result: TypesetFormula?
-      // `\boxed{...}` around the whole formula: SwiftMath has no box, so the
-      // inside is typeset and the frame is drawn around its image.
-      let (inside, boxed) = unwrapBoxed(latex)
-      if let pieces = BraceLayout.split(inside) {
-        // Top-level `\underbrace` / `\overbrace`: each part is typeset on
-        // its own and laid out on one baseline, with the brace and its label
-        // drawn under (or over) the term.
+      // A frame adds nothing to a formula, so `\boxed{x}` is set as `x`.
+      let latex = unboxed(latex)
+      if let pieces = BraceLayout.split(latex) {
+        // Top-level `\underbrace`, `\overbrace`, `\boxed`, `\xrightarrow`:
+        // SwiftMath has none of them. Each part is typeset on its own and
+        // laid out on one baseline, with the brace, frame, or arrow drawn.
         result = BraceLayout.compose(pieces, display: display, fontSize: fontSize, color: color) {
           render(candidates($0)[0], display: $1, fontSize: $2, color: color)
         }
       } else {
-        for candidate in candidates(inside) {
-          if let formula = render(candidate, display: display, fontSize: fontSize, color: color) {
-            result = formula
-            break
-          }
-        }
-      }
-      if boxed, let inner = result {
-        result = framed(inner, color: color, fontSize: fontSize)
+        result = render(candidates(latex)[0], display: display, fontSize: fontSize, color: color)
       }
       cache.setObject(Box(result), forKey: key)
       return result
-    }
-
-    /// The body of `\boxed{...}` (or `\fbox{...}`) when it is the whole
-    /// formula, and whether it was boxed.
-    static func unwrapBoxed(_ latex: String) -> (String, Bool) {
-      let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
-      for command in ["\\boxed", "\\fbox"] where trimmed.hasPrefix(command) {
-        let after = trimmed.index(trimmed.startIndex, offsetBy: command.count)
-        if let group = bracedGroup(in: trimmed, from: after),
-          trimmed[group.end...].trimmingCharacters(in: .whitespaces).isEmpty
-        {
-          return (group.body, true)
-        }
-      }
-      return (latex, false)
-    }
-
-    /// `formula` inside a thin rectangle with padding, the way `\boxed` sets.
-    private static func framed(_ formula: TypesetFormula, color: NSColor, fontSize: CGFloat) -> TypesetFormula {
-      let pad = (fontSize * 0.3).rounded()
-      let inner = formula.image.size
-      let size = CGSize(width: inner.width + pad * 2, height: inner.height + pad * 2)
-      let image = NSImage(size: size, flipped: false) { bounds in
-        formula.image.draw(in: CGRect(x: pad, y: pad, width: inner.width, height: inner.height))
-        color.setStroke()
-        let frame = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
-        frame.lineWidth = 0.8
-        frame.stroke()
-        return true
-      }
-      return TypesetFormula(image: image, descent: formula.descent + pad)
     }
 
     /// What SwiftMath is given: the source with non-ASCII runs turned into
@@ -108,10 +68,13 @@
         ("boldsymbol", "mathbf"), ("bm", "mathbf"),
         ("operatorname*", "mathrm"), ("operatorname", "mathrm"),
         ("limits", ""), ("nolimits", ""), (":", ">"),
+        ("dots", "ldots"), ("dotsc", "ldots"), ("dotsb", "cdots"), ("dotsm", "cdots"),
+        ("dotsi", "cdots"), ("dotso", "ldots"),
       ]
       for (name, replacement) in renames {
         s = replacingCommand(s, name, with: replacement)
       }
+      s = scriptArrows(s)
       // `\\[4pt]` is a row break with extra space; SwiftMath reads only `\\`.
       s = s.replacingOccurrences(
         of: "\\\\\\\\\\s*\\[[^\\]]*\\]", with: "\\\\\\\\", options: .regularExpression)
@@ -153,6 +116,40 @@
             replacement = "{" + term.body + "}"
           }
           s.replaceSubrange(range.lowerBound..<rest, with: replacement)
+        }
+      }
+      return s
+    }
+
+    /// `latex` with every `\boxed{...}` and `\fbox{...}` replaced by its
+    /// body. After `^` or `_` the body keeps its braces so it stays one
+    /// script; elsewhere the braces go too, so an `\underbrace` inside is
+    /// still at the top level and gets its brace drawn.
+    static func unboxed(_ latex: String) -> String {
+      var s = latex
+      for command in ["\\boxed", "\\fbox"] {
+        while let range = s.range(of: command),
+          let group = bracedGroup(in: s, from: range.upperBound)
+        {
+          let before = s[..<range.lowerBound].last(where: { $0 != " " })
+          let script = before == "^" || before == "_"
+          s.replaceSubrange(range.lowerBound..<group.end, with: script ? "{\(group.body)}" : group.body)
+        }
+      }
+      return s
+    }
+
+    /// `\xrightarrow[b]{a}` inside a group, where `BraceLayout` cannot draw
+    /// it: a long arrow with the labels as scripts, so they are kept.
+    static func scriptArrows(_ latex: String) -> String {
+      var s = latex
+      for (command, arrow) in [("xrightarrow", "longrightarrow"), ("xleftarrow", "longleftarrow")] {
+        while let range = s.range(of: "\\" + command) {
+          let parsed = BraceLayout.arrowArguments(in: s, from: range.upperBound)
+          var replacement = "\\" + arrow
+          if let over = parsed?.over { replacement += "^{\\scriptstyle " + over + "}" }
+          if let under = parsed?.under { replacement += "_{\\scriptstyle " + under + "}" }
+          s.replaceSubrange(range.lowerBound..<(parsed?.end ?? range.upperBound), with: replacement)
         }
       }
       return s

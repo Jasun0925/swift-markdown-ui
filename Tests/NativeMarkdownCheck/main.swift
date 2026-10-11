@@ -164,6 +164,63 @@
   check("\\\\[4pt] is rewritten before typesetting",
     NativeMarkdownRendering.preparedLatex(spaced).allSatisfy { !$0.contains("4pt") })
 
+  // Constructs SwiftMath lacks, from a VAE answer
+  check("\\xrightarrow with a label typesets",
+    NativeMarkdownRendering.typesets("z \\sim p(z) \\xrightarrow{\\text{decoder}} x \\sim p_\\theta(x|z)"))
+  check("\\xrightarrow inside a group typesets", NativeMarkdownRendering.typesets("{a \\xrightarrow{f} b}"))
+  check("\\boxed after other terms typesets", NativeMarkdownRendering.typesets(
+    "\\mathcal{L} = -\\text{ELBO} = \\boxed{-\\mathbb{E}_{z\\sim q_\\phi}\\big[\\log p_\\theta(x|z)\\big] + \\text{KL}}",
+    display: true))
+  check("\\dots typesets", NativeMarkdownRendering.typesets("\\mathbb{E}_{z_1\\dots z_k}"))
+  let tableBar = NativeMarkdownRendering.formulas(in: "| a | $p(x\\|z)$ |\n|---|---|\n")
+  check("\\| in a table row is a plain bar", tableBar.first?.latex == "p(x|z)")
+  check("\\| outside a table stays a norm",
+    NativeMarkdownRendering.formulas(in: "$q \\| p$").first?.latex == "q \\| p")
+  // \boxed draws no frame: the formula is set as if it were not boxed.
+  check("\\boxed is set without a frame",
+    NativeMarkdownRendering.formulaWidth("a = \\boxed{x + y}") == NativeMarkdownRendering.formulaWidth("a = x + y"))
+  // An underbrace inside \boxed is still drawn as a brace.
+  if let boxedBrace = NativeMarkdownRendering.formulaMetrics("\\boxed{a = \\underbrace{b}_{c} + d}", display: true),
+    let plain = NativeMarkdownRendering.formulaMetrics("a = b + d", display: true)
+  {
+    check("an underbrace inside \\boxed keeps its brace", boxedBrace.descent > plain.descent + 8)
+  }
+  // A part that is only spacing, left after splitting at a brace.
+  check("spacing next to a brace typesets", NativeMarkdownRendering.typesets(
+    "\\boxed{\\;\\mathcal{L}(x) = \\underbrace{\\mathbb{E}_{q(z|x)}[\\log p(x|z)]}_{\\text{重构项}} \\;-\\; "
+      + "\\underbrace{KL\\big(q(z|x)\\,\\|\\,p(z)\\big)}_{\\text{正则项}}\\;}", display: true))
+  // `= \underbrace` keeps the space after `=` once the parts are laid out alone.
+  if let spaced = NativeMarkdownRendering.formulaWidth("a = \\underbrace{x}"),
+    let glued = NativeMarkdownRendering.formulaWidth("a="),
+    let term = NativeMarkdownRendering.formulaWidth("x")
+  {
+    check("an operator before a brace keeps its space", spaced > glued + term + 2)
+  }
+  if let plain = NativeMarkdownRendering.formulaMetrics("x = y"),
+    let arrow = NativeMarkdownRendering.formulaMetrics("x \\xrightarrow{a} y")
+  {
+    check("a labelled arrow keeps the baseline", abs(plain.descent - arrow.descent) < 1)
+  }
+
+  if let sample = ProcessInfo.processInfo.environment["SAMPLE"],
+    let text = try? String(contentsOfFile: sample, encoding: .utf8)
+  {
+    let drawn = render(text)
+    print("sample formulas:", NativeMarkdownRendering.formulas(in: text).count,
+      "images:", attachments(drawn), "TeX left:", drawn.string.contains("\\"))
+  }
+
+  if let probe = ProcessInfo.processInfo.environment["PROBE"],
+    let text = try? String(contentsOfFile: probe, encoding: .utf8)
+  {
+    for line in text.split(separator: "\n") where !line.isEmpty {
+      let ok = NativeMarkdownRendering.typesets(String(line), display: true)
+      let m = NativeMarkdownRendering.formulaMetrics(String(line), display: true)
+      print(ok ? "OK  " : "FAIL", line, m.map { "a=\(Int($0.ascent)) d=\(Int($0.descent))" } ?? "")
+      if !ok { print("     ->", NativeMarkdownRendering.preparedLatex(String(line))) }
+    }
+  }
+
   if let out = ProcessInfo.processInfo.environment["SNAPSHOT"] {
     let sample = """
       ## 1. 基本公式
