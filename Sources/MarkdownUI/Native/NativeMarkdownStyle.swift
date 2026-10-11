@@ -35,6 +35,9 @@
   struct NativeMarkdownStyle: Hashable {
     let fontSize: CGFloat
     let isDark: Bool
+    /// The folder local images are read from. `nil` shows every image as
+    /// its alt text.
+    var imageDirectory: URL? = nil
 
     var textColor: NSColor { .labelColor }
     var secondaryColor: NSColor { .secondaryLabelColor }

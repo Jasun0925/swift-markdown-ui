@@ -17,8 +17,12 @@
   /// view themselves and for the package's checks.
   public enum NativeMarkdownRendering {
     /// The attributed text `NativeMarkdown` would show for `source`.
-    public static func attributedString(_ source: String, fontSize: CGFloat, isDark: Bool) -> NSAttributedString {
-      NativeMarkdownRenderer(style: NativeMarkdownStyle(fontSize: fontSize, isDark: isDark)).render(source)
+    public static func attributedString(
+      _ source: String, fontSize: CGFloat, isDark: Bool, imageDirectory: URL? = nil
+    ) -> NSAttributedString {
+      NativeMarkdownRenderer(
+        style: NativeMarkdownStyle(fontSize: fontSize, isDark: isDark, imageDirectory: imageDirectory)
+      ).render(source)
     }
 
     /// The formulas found in `source`, as TeX, in order.
@@ -58,10 +62,13 @@
 
     /// `source` drawn at `width` into a PNG, as the text view would show it.
     /// For checking layout by eye; the copy buttons are subviews and drawn too.
-    @MainActor public static func snapshot(_ source: String, width: CGFloat, fontSize: CGFloat = 14, isDark: Bool = false) -> Data? {
+    @MainActor public static func snapshot(
+      _ source: String, width: CGFloat, fontSize: CGFloat = 14, isDark: Bool = false, imageDirectory: URL? = nil
+    ) -> Data? {
       let view = NativeMarkdownTextView.make()
       view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
-      view.textStorage?.setAttributedString(attributedString(source, fontSize: fontSize, isDark: isDark))
+      view.textStorage?.setAttributedString(
+        attributedString(source, fontSize: fontSize, isDark: isDark, imageDirectory: imageDirectory))
       view.textDidReplace()
       let height = view.measuredHeight(for: width)
       view.frame = CGRect(x: 0, y: 0, width: width, height: height)
@@ -81,17 +88,22 @@
   public struct NativeMarkdown: View {
     private let source: String
     private let fontSize: CGFloat
+    private let imageDirectory: URL?
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(_ source: String, fontSize: CGFloat = 14) {
+    /// - Parameter imageDirectory: The folder `![alt](path)` images are read
+    ///   from. Relative paths resolve against it, and a file outside it is
+    ///   not read. Web images are never fetched. `nil` shows alt text only.
+    public init(_ source: String, fontSize: CGFloat = 14, imageDirectory: URL? = nil) {
       self.source = source
       self.fontSize = fontSize
+      self.imageDirectory = imageDirectory
     }
 
     public var body: some View {
       NativeMarkdownRepresentable(
         source: source,
-        style: NativeMarkdownStyle(fontSize: fontSize, isDark: colorScheme == .dark)
+        style: NativeMarkdownStyle(fontSize: fontSize, isDark: colorScheme == .dark, imageDirectory: imageDirectory)
       )
       .frame(maxWidth: .infinity, alignment: .leading)
     }

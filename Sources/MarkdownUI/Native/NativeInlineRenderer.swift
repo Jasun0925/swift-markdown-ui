@@ -25,7 +25,7 @@
 
     func render(_ inlines: [InlineNode], state: NativeInlineState) -> NSMutableAttributedString {
       let out = NSMutableAttributedString()
-      for inline in inlines {
+      for inline in StrongRepair.repair(inlines) {
         append(inline, state: state, to: out)
       }
       return out
@@ -80,8 +80,10 @@
         if state.link != nil { state.color = style.linkColor }
         children.forEach { append($0, state: state, to: out) }
       case .image(let source, let children):
-        // The alt text, linked to the picture when it is on the web.
         let alt = children.renderPlainText()
+        if appendLocalImage(source, alt: alt, state: state, to: out) { break }
+        // A web image, or a local one that cannot be shown: the alt text,
+        // linked to the picture when it is on the web.
         state.link = Self.safeURL(source)
         if state.link != nil { state.color = style.linkColor }
         appendText(alt.isEmpty ? source : alt, state: state, to: out)
@@ -166,6 +168,34 @@
         piece.addAttribute(.markdownDisplayMath, value: true, range: NSRange(location: 0, length: piece.length))
       }
       out.append(piece)
+    }
+
+    /// A picture from `style.imageDirectory`, set on the line at its own size
+    /// (no wider than the column). Copy writes `![alt](source)`. Returns
+    /// `false` when there is no folder, or the file is outside it, missing,
+    /// too large, or not an image.
+    func appendLocalImage(_ source: String, alt: String, state: NativeInlineState, to out: NSMutableAttributedString) -> Bool {
+      guard let directory = style.imageDirectory,
+        let file = LocalImages.file(for: source, in: directory),
+        let image = LocalImages.image(at: file)
+      else { return false }
+      let attachment = NSTextAttachment()
+      attachment.image = image
+      let size = LocalImages.displaySize(of: image, maxWidth: NativeMarkdownStyle.readableWidth)
+      attachment.bounds = CGRect(origin: .zero, size: size)
+      let piece = NSMutableAttributedString(attachment: attachment)
+      var attrs = attributes(state)
+      attrs[.baselineOffset] = nil
+      attrs[.markdownSource] = MarkdownSource("![\(alt)](\(source))")
+      if !alt.isEmpty { attrs[.toolTip] = alt }
+      piece.addAttributes(attrs, range: NSRange(location: 0, length: piece.length))
+      // A picture wider than a few words gets its own line; a small icon
+      // stays inline with the text.
+      if size.width > 120 || size.height > state.size * 3 {
+        piece.addAttribute(.markdownDisplayMath, value: true, range: NSRange(location: 0, length: piece.length))
+      }
+      out.append(piece)
+      return true
     }
 
     /// Only web and mail links become clickable; `javascript:` and file

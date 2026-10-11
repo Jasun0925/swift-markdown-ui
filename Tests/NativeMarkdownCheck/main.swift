@@ -40,6 +40,30 @@
   let bold = render("这是**粗体**。")
   let boldFont = bold.attribute(.font, at: 2, effectiveRange: nil) as? NSFont
   check("bold beside Chinese renders without asterisks", bold.string == "这是粗体。")
+  // Bold CommonMark leaves as text in CJK prose, from real answers.
+  func isBold(_ text: NSAttributedString, _ word: String) -> Bool {
+    let range = (text.string as NSString).range(of: word)
+    guard range.location != NSNotFound,
+      let font = text.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+    else { return false }
+    return font.fontDescriptor.symbolicTraits.contains(.bold)
+  }
+  let closeAfterParen = render("它的安全性建立在**离散对数问题（DLP）**的难解性之上。")
+  check("bold closing after full-width punctuation", closeAfterParen.string == "它的安全性建立在离散对数问题（DLP）的难解性之上。"
+    && isBold(closeAfterParen, "离散对数问题") && !isBold(closeAfterParen, "难解性"))
+  let innerSpaces = render("它建立在** Diffie-Hellman 密钥交换** 的思想之上")
+  check("bold with spaces inside", innerSpaces.string == "它建立在Diffie-Hellman 密钥交换 的思想之上"
+    && isBold(innerSpaces, "Diffie-Hellman") && !isBold(innerSpaces, "思想"))
+  let mixed = render("先 **正常加粗**，再**（括号）**后，最后 `a**b` 和 $x^{**}$")
+  check("ordinary bold, code, and formulas are left alone", !mixed.string.contains("**粗")
+    && mixed.string.contains("a**b") && isBold(mixed, "正常加粗") && isBold(mixed, "（括号）"))
+  check("a lone ** stays text", render("2 ** 3 is eight").string == "2 ** 3 is eight")
+  check("an unclosed ** does not reach into the next paragraph",
+    render("a **b\n\nc** d").string.components(separatedBy: "**").count == 3)
+  // Two ** cmark leaves as text, on different lines of one paragraph.
+  let acrossBreak = render("在**甲（乙）\n丙（丁）**的")
+  check("repaired bold does not reach across a line break",
+    acrossBreak.string.components(separatedBy: "**").count == 3)
   check("bold beside Chinese is bold", boldFont?.fontDescriptor.symbolicTraits.contains(.bold) == true)
 
   let underscores = render("$x_i$ and $y_i$ and _real emphasis_")
@@ -214,12 +238,74 @@
     check("a labelled arrow keeps the baseline", abs(plain.descent - arrow.descent) < 1)
   }
 
+  // Local images: read from the folder given, never from outside it.
+  let folder = FileManager.default.temporaryDirectory.appendingPathComponent("native-images-\(getpid())")
+  let outside = FileManager.default.temporaryDirectory.appendingPathComponent("native-outside-\(getpid())")
+  try? FileManager.default.createDirectory(at: folder.appendingPathComponent("plots"), withIntermediateDirectories: true)
+  try? FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+  func writePNG(_ url: URL, width: Int, height: Int) {
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
+      samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    try? rep.representation(using: .png, properties: [:])?.write(to: url)
+  }
+  writePNG(folder.appendingPathComponent("plots/loss.png"), width: 400, height: 200)
+  writePNG(folder.appendingPathComponent("wide.png"), width: 2000, height: 500)
+  writePNG(outside.appendingPathComponent("secret.png"), width: 50, height: 50)
+  try? "not an image".write(to: folder.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+  try? FileManager.default.createSymbolicLink(
+    at: folder.appendingPathComponent("link.png"), withDestinationURL: outside.appendingPathComponent("secret.png"))
+  func renderImages(_ source: String, folder dir: URL? = folder) -> NSAttributedString {
+    NativeMarkdownRendering.attributedString(source, fontSize: 14, isDark: false, imageDirectory: dir)
+  }
+  check("a relative image is shown", attachments(renderImages("![Loss](plots/loss.png)")) == 1)
+  check("a file: URL inside the folder is shown",
+    attachments(renderImages("![x](\(folder.appendingPathComponent("plots/loss.png").absoluteString))")) == 1)
+  check("an absolute path inside the folder is shown",
+    attachments(renderImages("![x](\(folder.appendingPathComponent("plots/loss.png").path))")) == 1)
+  check("../ out of the folder is not read",
+    attachments(renderImages("![x](../\(outside.lastPathComponent)/secret.png)")) == 0)
+  check("an absolute path outside the folder is not read",
+    attachments(renderImages("![x](\(outside.appendingPathComponent("secret.png").path))")) == 0)
+  check("a symlink out of the folder is not read", attachments(renderImages("![x](link.png)")) == 0)
+  check("a file that is not an image is not read", attachments(renderImages("![x](notes.txt)")) == 0)
+  check("a missing image shows its alt text", renderImages("![Loss curve](plots/none.png)").string == "Loss curve")
+  check("a web image is not fetched", attachments(renderImages("![x](https://example.com/a.png)")) == 0)
+  check("without a folder no image is read", attachments(renderImages("![x](plots/loss.png)", folder: nil)) == 0)
+  let shown = renderImages("Before ![Loss](plots/loss.png) after")
+  let imageCopy = MainActor.assumeIsolated { NativeMarkdownRendering.copiedText(shown) }
+  check("an image copies as its markdown", imageCopy?.contains("![Loss](plots/loss.png)") == true)
+  var wideSize = CGSize.zero
+  let wideImage = renderImages("![w](wide.png)")
+  wideImage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: wideImage.length)) { value, _, _ in
+    if let a = value as? NSTextAttachment { wideSize = a.bounds.size }
+  }
+  check("a wide image is scaled to the column", wideSize.width <= 760 && abs(wideSize.height - 190) < 1)
+  // A PDF is not drawn in the answer; the app lists it as a file card.
+  try? Data("%PDF-1.4".utf8).write(to: folder.appendingPathComponent("doc.pdf"))
+  check("a PDF embed stays text", attachments(renderImages("![报告](doc.pdf)")) == 0)
+  check("inline code naming an image stays code", attachments(renderImages("Saved `plots/loss.png`.")) == 0)
+  // A chart-sized image sits on its own centered line.
+  let inProse = renderImages("Results:\n\n![Loss](plots/loss.png)\n\nDone.")
+  var imageAlignment: NSTextAlignment?
+  inProse.enumerateAttribute(.attachment, in: NSRange(location: 0, length: inProse.length)) { value, range, _ in
+    guard value != nil else { return }
+    imageAlignment = (inProse.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.alignment
+  }
+  check("a chart image is centered on its own line", imageAlignment == .center)
+  try? FileManager.default.removeItem(at: folder)
+  try? FileManager.default.removeItem(at: outside)
+
   if let sample = ProcessInfo.processInfo.environment["SAMPLE"],
     let text = try? String(contentsOfFile: sample, encoding: .utf8)
   {
     let drawn = render(text)
     print("sample formulas:", NativeMarkdownRendering.formulas(in: text).count,
       "images:", attachments(drawn), "TeX left:", drawn.string.contains("\\"))
+    if let dir = ProcessInfo.processInfo.environment["IMAGES"] {
+      let withFiles = NativeMarkdownRendering.attributedString(
+        text, fontSize: 14, isDark: false, imageDirectory: URL(fileURLWithPath: dir, isDirectory: true))
+      print("sample files shown:", attachments(withFiles) - attachments(drawn))
+    }
   }
 
   if let probe = ProcessInfo.processInfo.environment["PROBE"],
@@ -269,7 +355,12 @@
       """
     let chosen = ProcessInfo.processInfo.environment["SAMPLE"]
       .flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? sample
-    let png = MainActor.assumeIsolated { NativeMarkdownRendering.snapshot(chosen, width: 640, fontSize: CGFloat(Double(ProcessInfo.processInfo.environment["FONT"] ?? "14") ?? 14)) }
+    let images = ProcessInfo.processInfo.environment["IMAGES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    let png = MainActor.assumeIsolated {
+      NativeMarkdownRendering.snapshot(
+        chosen, width: 640, fontSize: CGFloat(Double(ProcessInfo.processInfo.environment["FONT"] ?? "14") ?? 14),
+        imageDirectory: images)
+    }
     try? png?.write(to: URL(fileURLWithPath: out))
     print("snapshot:", out)
   }
