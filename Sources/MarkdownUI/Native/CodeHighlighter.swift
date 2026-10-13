@@ -18,6 +18,13 @@
       // A block with no language may not be code at all (output, a formula
       // written as text), so it is not colored as if it were.
       guard !language.isEmpty else { return out }
+      // A diff is colored by the line, not by the language inside it. A
+      // keyword scan would paint the Python on a `+` line and hide that the
+      // whole line was added.
+      if Self.diffLanguages.contains(language.lowercased()) {
+        colorDiffLines(in: out, code: code)
+        return out
+      }
       let grammar = Grammar.named(language.lowercased())
       let ns = code as NSString
       var claimed = IndexSet()
@@ -33,6 +40,35 @@
         }
       }
       return out
+    }
+
+    private static let diffLanguages: Set<String> = ["diff", "patch", "udiff"]
+
+    /// Colors one unified diff. `+` and `-` lines take the addition and
+    /// deletion colors; `+++` and `---` name the files and stay plain, as
+    /// does a context line with no marker.
+    private func colorDiffLines(in out: NSMutableAttributedString, code: String) {
+      let ns = code as NSString
+      var start = 0
+      while start < ns.length {
+        let line = ns.lineRange(for: NSRange(location: start, length: 0))
+        let next = NSMaxRange(line)
+        if next <= start { break }
+        let raw = ns.substring(with: line)
+        let content = raw.hasSuffix("\n") ? String(raw.dropLast()) : raw
+        let text = content.hasSuffix("\r") ? String(content.dropLast()) : content
+        let range = NSRange(location: line.location, length: (text as NSString).length)
+        if text.hasPrefix("@@") {
+          out.addAttribute(.foregroundColor, value: style.secondaryColor, range: range)
+        } else if text.hasPrefix("+"), !text.hasPrefix("+++") {
+          out.addAttribute(.foregroundColor, value: style.diffAddedColor, range: range)
+          out.addAttribute(.backgroundColor, value: style.diffAddedBackground, range: range)
+        } else if text.hasPrefix("-"), !text.hasPrefix("---") {
+          out.addAttribute(.foregroundColor, value: style.diffRemovedColor, range: range)
+          out.addAttribute(.backgroundColor, value: style.diffRemovedBackground, range: range)
+        }
+        start = next
+      }
     }
 
     private func color(_ token: Token) -> NSColor {

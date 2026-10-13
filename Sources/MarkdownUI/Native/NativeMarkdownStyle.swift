@@ -90,6 +90,28 @@
       )
     }
 
+    /// A line added in a ``diff`` fence.
+    var diffAddedColor: NSColor {
+      Self.dynamic(light: NSColor(srgbRed: 0.05, green: 0.45, blue: 0.22, alpha: 1),
+                   dark: NSColor(srgbRed: 0.45, green: 0.86, blue: 0.55, alpha: 1))
+    }
+
+    var diffAddedBackground: NSColor {
+      Self.dynamic(light: NSColor(srgbRed: 0.15, green: 0.65, blue: 0.32, alpha: 0.16),
+                   dark: NSColor(srgbRed: 0.25, green: 0.75, blue: 0.4, alpha: 0.22))
+    }
+
+    /// A line removed in a ``diff`` fence.
+    var diffRemovedColor: NSColor {
+      Self.dynamic(light: NSColor(srgbRed: 0.72, green: 0.1, blue: 0.1, alpha: 1),
+                   dark: NSColor(srgbRed: 1, green: 0.48, blue: 0.45, alpha: 1))
+    }
+
+    var diffRemovedBackground: NSColor {
+      Self.dynamic(light: NSColor(srgbRed: 0.85, green: 0.15, blue: 0.15, alpha: 0.14),
+                   dark: NSColor(srgbRed: 0.9, green: 0.3, blue: 0.28, alpha: 0.22))
+    }
+
     var quoteBarColor: NSColor {
       Self.dynamic(light: NSColor(white: 0, alpha: 0.18), dark: NSColor(white: 1, alpha: 0.24))
     }

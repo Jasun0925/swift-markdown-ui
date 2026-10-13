@@ -182,6 +182,45 @@
   let labeled = render("```python\nx = 1\n```")
   check("a labeled block shows its language", labeled.string.hasPrefix("python\n"))
 
+  // A diff fence is colored by the line marker, not as the language inside it.
+  let diff = render("""
+  ```diff
+   context
+  -removed
+  +added
+  --- a/file.py
+  +++ b/file.py
+  @@ -1 +1 @@
+  ```
+  """)
+  func ink(_ text: NSAttributedString, of needle: String) -> (foreground: String, background: String) {
+    let full = text.string as NSString
+    let range = full.range(of: needle)
+    guard range.location != NSNotFound else { return ("missing", "missing") }
+    let foreground = text.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
+    let background = text.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor
+    return (resolved(foreground), resolved(background))
+  }
+  func resolved(_ color: NSColor?) -> String {
+    guard let color else { return "none" }
+    var parts = "unresolved"
+    NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
+      guard let rgb = color.usingColorSpace(.sRGB) else { return }
+      parts = String(format: "%.2f,%.2f,%.2f", rgb.redComponent, rgb.greenComponent, rgb.blueComponent)
+    }
+    return parts
+  }
+  let contextInk = ink(diff, of: " context")
+  let removedInk = ink(diff, of: "-removed")
+  let addedInk = ink(diff, of: "+added")
+  let fileHeaderInk = ink(diff, of: "--- a/file.py")
+  check("a removed diff line is not the context color", removedInk.foreground != contextInk.foreground)
+  check("an added diff line is not the context color", addedInk.foreground != contextInk.foreground)
+  check("a removed line and an added line differ", removedInk.foreground != addedInk.foreground)
+  check("a removed diff line has a background", removedInk.background != "none")
+  check("an added diff line has a background", addedInk.background != "none")
+  check("a diff file header stays the context color", fileHeaderInk.foreground == contextInk.foreground)
+
   // `\\[4pt]` must be rewritten even when the source typesets as written:
   // SwiftMath draws "[4pt]" as text rather than failing.
   let spaced = "\\begin{cases} -\\tau & y > 0 \\\\[4pt] \\tau - 1 & y < 0 \\end{cases}"
